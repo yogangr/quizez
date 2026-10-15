@@ -1,8 +1,9 @@
-import { sql } from '../../../lib/db';
+import { sql } from "../../../lib/db";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const rows = await sql`select name, score, seconds from scores order by score desc, seconds asc limit 10`;
-  return Response.json(rows);
+export async function GET(req) {
+  const k = new URL(req.url).searchParams.get("kind");
+  const kind = k === "weekly" || k === "all" ? k : "daily";
+  return Response.json(await board(kind, 10));
 }

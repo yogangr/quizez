@@ -1,6 +1,10 @@
-import { sql } from '../../../lib/db';
+import { sql } from "../../../lib/db";
+import { board } from "../../../lib/board";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+
+const DAILY = 10;
+const RANDOM = 20;
 
 const shuffle = (a) => {
   a = [...a];
@@ -10,35 +14,96 @@ const shuffle = (a) => {
   }
   return a;
 };
+const out = (rows) =>
+  rows.map((r) => ({
+    id: r.id,
+    q: r.q,
+    options: shuffle([r.answer, ...r.wrong]),
+  }));
+const bad = (msg) => Response.json({ error: msg }, { status: 400 });
 
-// Ambil 20 soal acak. Jawaban benar tidak dikirim ke browser.
-export async function GET() {
-  const rows = await sql`select id, q, answer, wrong from questions order by random() limit 20`;
-  return Response.json(
-    rows.map((r) => ({ id: r.id, q: r.q, options: shuffle([r.answer, ...r.wrong]) }))
-  );
+async function today() {
+  const [{ d }] =
+    await sql`select (now() at time zone 'Asia/Jakarta')::date::text as d`;
+  return d;
 }
 
-// Nilai dihitung di server, lalu disimpan ke peringkat.
-export async function POST(req) {
-  const { name, seconds, answers } = await req.json();
-  const n = String(name || '').trim().slice(0, 20);
-  if (!n || !Array.isArray(answers) || answers.length === 0 || answers.length > 20) {
-    return Response.json({ error: 'Data tidak valid' }, { status: 400 });
+// Soal harian: urutannya ditentukan oleh tanggal, jadi sama untuk semua pemain.
+// Diambil bergiliran per kategori supaya variatif.
+function dailySet(day) {
+  return sql`select id, q, answer, wrong from (
+      select *, row_number() over (partition by cat order by md5(id::text || ${day})) rn from questions
+    ) t order by rn, md5(id::text || ${day}) limit ${DAILY}`;
+}
+
+export async function GET(req) {
+  const mode =
+    new URL(req.url).searchParams.get("mode") === "daily" ? "daily" : "acak";
+  if (mode === "daily") {
+    const day = await today();
+    return Response.json({ mode, day, questions: out(await dailySet(day)) });
   }
-  const picks = new Map(answers.map((a) => [Number(a.id), a.pick]));
-  const rows = await sql`select id, q, answer from questions where id = any(${[...picks.keys()]})`;
+  // Kuis acak: satu soal dari tiap kategori dulu, jadi topiknya beragam.
+  const rows = await sql`select id, q, answer, wrong from (
+      select *, row_number() over (partition by cat order by random()) rn from questions
+    ) t order by rn, random() limit ${RANDOM}`;
+  return Response.json({ mode, day: null, questions: out(rows) });
+}
+
+export async function POST(req) {
+  const b = await req.json();
+  const n = String(b.name || "")
+    .trim()
+    .slice(0, 20);
+  const mode = b.mode === "daily" ? "daily" : "acak";
+  if (
+    !n ||
+    !Array.isArray(b.answers) ||
+    b.answers.length === 0 ||
+    b.answers.length > RANDOM
+  )
+    return bad("Data tidak valid");
+  const picks = new Map(b.answers.map((a) => [Number(a.id), a.pick]));
+
+  let set,
+    total,
+    day = null;
+  if (mode === "daily") {
+    day = String(b.day || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return bad("Tanggal tidak valid");
+    const [{ valid }] =
+      await sql`select (${day}::date between (now() at time zone 'Asia/Jakarta')::date - 1 and (now() at time zone 'Asia/Jakarta')::date) as valid`;
+    if (!valid) return bad("Kuis harian sudah berganti, muat ulang halaman.");
+    set = await dailySet(day);
+    total = set.length;
+  } else {
+    set =
+      await sql`select id, q, answer from questions where id = any(${[...picks.keys()].slice(0, RANDOM)})`;
+    total = RANDOM; // soal yang tidak dikirim dihitung salah
+  }
+  if (!set.length) return bad("Soal tidak ditemukan");
+
   let ok = 0;
   const wrong = [];
-  for (const r of rows) {
+  for (const r of set) {
     const pick = picks.get(r.id) ?? null;
     if (pick === r.answer) ok++;
     else wrong.push({ q: r.q, answer: r.answer, pick });
   }
-  const total = rows.length || 1;
   const score = Math.round((ok / total) * 100);
-  const t = Math.min(600, Math.max(0, Math.floor(Number(seconds) || 0)));
-  await sql`insert into scores(name, score, correct, total, seconds) values(${n}, ${score}, ${ok}, ${total}, ${t})`;
-  const [{ c }] = await sql`select count(*)::int as c from scores where score > ${score} or (score = ${score} and seconds < ${t})`;
-  return Response.json({ score, correct: ok, total, rank: c + 1, wrong });
+  const t = Math.min(600, Math.max(0, Math.floor(Number(b.seconds) || 0)));
+
+  await sql`insert into scores(name, score, correct, total, seconds, mode, day)
+    values(${n}, ${score}, ${ok}, ${total}, ${t}, ${mode}, ${day}::date)`;
+
+  const list = await board(mode === "daily" ? "daily" : "all", 100);
+  const idx = list.findIndex((e) => e.name.toLowerCase() === n.toLowerCase());
+  return Response.json({
+    mode,
+    score,
+    correct: ok,
+    total,
+    rank: idx < 0 ? null : idx + 1,
+    wrong,
+  });
 }

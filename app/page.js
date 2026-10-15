@@ -3,11 +3,37 @@ import { useEffect, useRef, useState } from "react";
 
 const T = 600; // 10 menit
 const fmt = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const TABS = [
+  ["daily", "Hari ini"],
+  ["weekly", "Minggu ini"],
+  ["all", "Sepanjang masa"],
+];
+const NOTE = {
+  daily: "Nilai terbaik Kuis Harian hari ini.",
+  weekly: "Jumlah nilai terbaik Kuis Harian tiap hari, Senin sampai Minggu.",
+  all: "Nilai terbaik Kuis Acak.",
+};
 
-function Board({ list }) {
+function Board({ list, kind, setKind }) {
   return (
     <div className="card">
-      <h2>Peringkat 10 besar</h2>
+      <h2>Peringkat</h2>
+      <div className="tabs" role="tablist">
+        {TABS.map(([k, t]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={kind === k}
+            className={kind === k ? "on" : ""}
+            onClick={() => setKind(k)}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <p className="mute" style={{ fontSize: 14, margin: "0 0 8px" }}>
+        {NOTE[kind]}
+      </p>
       <ol className="lb">
         {list.length === 0 && (
           <li className="mute" style={{ display: "block" }}>
@@ -19,13 +45,12 @@ function Board({ list }) {
             <span className="rk">{i + 1}</span>
             <span>{e.name}</span>
             <b>{e.score}</b>
-            <span className="tt">{fmt(e.seconds)}</span>
+            <span className="tt">
+              {kind === "weekly" ? `${e.days} hari` : fmt(e.seconds)}
+            </span>
           </li>
         ))}
       </ol>
-      <p className="mute" style={{ fontSize: 14, marginTop: 10 }}>
-        Urut dari nilai tertinggi, lalu waktu tercepat.
-      </p>
     </div>
   );
 }
@@ -33,30 +58,51 @@ function Board({ list }) {
 export default function Page() {
   const [view, setView] = useState("home");
   const [name, setName] = useState("");
+  const [mode, setMode] = useState("daily");
   const [qs, setQs] = useState([]);
   const [ans, setAns] = useState({});
   const [i, setI] = useState(0);
   const [left, setLeft] = useState(T);
   const [res, setRes] = useState(null);
+  const [kind, setKind] = useState("daily");
   const [board, setBoard] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [warn, setWarn] = useState(false);
+  const [played, setPlayed] = useState(false);
+  const [dayLabel, setDayLabel] = useState("");
   const end = useRef(0);
   const done = useRef(false);
+  const day = useRef(null);
   const latest = useRef({});
-  latest.current = { ans, qs, name };
+  latest.current = { ans, qs, name, mode };
 
-  const loadBoard = () =>
-    fetch("/api/leaderboard", { cache: "no-store" })
+  const loadBoard = (k) =>
+    fetch(`/api/leaderboard?kind=${k}`, { cache: "no-store" })
       .then((r) => r.json())
       .then(setBoard)
       .catch(() => {});
 
   useEffect(() => {
     setName(localStorage.getItem("kuis-name") || "");
-    loadBoard();
+    const d = new Date();
+    setDayLabel(
+      d.toLocaleDateString("id-ID", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone: "Asia/Jakarta",
+      }),
+    );
+    setPlayed(
+      localStorage.getItem("kuis-daily") ===
+        d.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" }),
+    );
   }, []);
+
+  useEffect(() => {
+    loadBoard(kind);
+  }, [kind]);
 
   useEffect(() => {
     if (view !== "quiz") return;
@@ -71,7 +117,7 @@ export default function Page() {
     return () => clearInterval(t);
   }, [view]);
 
-  async function start() {
+  async function start(m) {
     const n = name.trim();
     if (!n) {
       setErr("Isi nama dulu sebelum mulai.");
@@ -80,11 +126,13 @@ export default function Page() {
     setErr("");
     setBusy(true);
     try {
-      const r = await fetch("/api/quiz", { cache: "no-store" });
+      const r = await fetch(`/api/quiz?mode=${m}`, { cache: "no-store" });
       const d = await r.json();
-      if (!r.ok || !d.length) throw new Error();
+      if (!r.ok || !d.questions?.length) throw new Error();
       localStorage.setItem("kuis-name", n);
-      setQs(d);
+      day.current = d.day;
+      setMode(m);
+      setQs(d.questions);
       setAns({});
       setI(0);
       setWarn(false);
@@ -103,7 +151,7 @@ export default function Page() {
   async function finish() {
     if (done.current) return;
     done.current = true;
-    const { ans, qs, name } = latest.current;
+    const { ans, qs, name, mode } = latest.current;
     const seconds =
       T - Math.max(0, Math.ceil((end.current - Date.now()) / 1000));
     setBusy(true);
@@ -114,16 +162,25 @@ export default function Page() {
         body: JSON.stringify({
           name: name.trim(),
           seconds,
+          mode,
+          day: day.current,
           answers: qs.map((q) => ({ id: q.id, pick: ans[q.id] || null })),
         }),
       });
-      if (!r.ok) throw new Error();
-      setRes({ ...(await r.json()), seconds });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error);
+      setRes({ ...d, seconds });
+      if (mode === "daily") {
+        localStorage.setItem("kuis-daily", day.current);
+        setPlayed(true);
+      }
+      const k = mode === "daily" ? "daily" : "all";
+      setKind(k);
+      loadBoard(k);
       setView("result");
-      loadBoard();
-    } catch {
+    } catch (e) {
       done.current = false;
-      setErr("Jawaban belum terkirim. Coba tekan Submit lagi.");
+      setErr(e.message || "Jawaban belum terkirim. Coba tekan Submit lagi.");
     }
     setBusy(false);
   }
@@ -138,6 +195,7 @@ export default function Page() {
   }
 
   const q = qs[i];
+  const label = mode === "daily" ? "Kuis Harian" : "Kuis Acak";
 
   return (
     <main>
@@ -145,7 +203,10 @@ export default function Page() {
         <>
           <div className="card">
             <h1>Kuis Pengetahuan Umum</h1>
-            <p className="mute">20 soal acak dari bank soal, waktu 10 menit.</p>
+            <p className="mute">
+              Dari sains, sejarah, dan budaya sampai olahraga, teknologi, dan
+              peribahasa. Waktu 10 menit tiap kuis.
+            </p>
           </div>
           <div className="two">
             <div className="card">
@@ -157,14 +218,35 @@ export default function Page() {
                 value={name}
                 placeholder="Contoh: Dewi"
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && start()}
               />
               <p className="err">{err}</p>
-              <button className="btn" onClick={start} disabled={busy}>
-                {busy ? "Memuat soal..." : "Mulai kuis"}
+              {dayLabel && <span className="date">{dayLabel}</span>}
+              <button
+                className="btn sun"
+                style={{ marginTop: 10 }}
+                onClick={() => start("daily")}
+                disabled={busy}
+              >
+                {busy ? "Memuat soal..." : "Kuis Harian · 10 soal"}
               </button>
+              <p className="hint">
+                Soalnya sama untuk semua pemain hari ini.
+                {played
+                  ? " Kamu sudah memainkannya, hanya nilai terbaik yang dihitung."
+                  : ""}
+              </p>
+              <button
+                className="btn"
+                onClick={() => start("acak")}
+                disabled={busy}
+              >
+                Kuis Acak · 20 soal
+              </button>
+              <p className="hint">
+                Soal berbeda setiap kali main, dengan topik yang beragam.
+              </p>
             </div>
-            <Board list={board} />
+            <Board list={board} kind={kind} setKind={setKind} />
           </div>
         </>
       )}
@@ -173,7 +255,7 @@ export default function Page() {
         <>
           <div className="top">
             <span>
-              Soal {i + 1} dari {qs.length}
+              {label} · Soal {i + 1} dari {qs.length}
             </span>
             <span className={"time" + (left <= 60 ? " low" : "")} role="timer">
               {fmt(left)}
@@ -245,24 +327,28 @@ export default function Page() {
       {view === "result" && res && (
         <>
           <div className="card">
-            <h2>Hasil kuis {name}</h2>
+            <h2>
+              Hasil {label} · {name}
+            </h2>
             <div className="score">{res.score}</div>
             <div className="chips">
               <span className="chip">
                 Benar {res.correct} dari {res.total}
               </span>
               <span className="chip">Waktu {fmt(res.seconds)}</span>
-              <span className="chip">
-                Peringkat {res.rank}
-                {res.rank > 10 ? " (di luar 10 besar)" : ""}
-              </span>
+              {res.rank && (
+                <span className="chip">
+                  Peringkat {res.rank}
+                  {mode === "daily" ? " hari ini" : ""}
+                </span>
+              )}
             </div>
             <button
               className="btn alt"
               style={{ marginTop: 0 }}
               onClick={() => setView("home")}
             >
-              Main lagi
+              Kembali ke awal
             </button>
           </div>
           <div className="two">
@@ -283,7 +369,7 @@ export default function Page() {
                 ))}
               </ul>
             </div>
-            <Board list={board} />
+            <Board list={board} kind={kind} setKind={setKind} />
           </div>
         </>
       )}

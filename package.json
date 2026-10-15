@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "seed": "node --env-file=.env.local scripts/seed.mjs"
+    "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "seed:umum": "node --env-file=.env.local scripts/seed-umum.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
