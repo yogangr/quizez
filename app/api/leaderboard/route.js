@@ -1,13 +1,16 @@
-import { sql } from "../../../lib/db";
+import { board } from "../../../lib/board";
 
 export const dynamic = "force-dynamic";
 
+const LEVELS = ["mudah", "sedang", "sulit", "olimpiade"];
+
 export async function GET(req) {
   try {
-    const { board } = await import("../../../lib/board");
-    const k = new URL(req.url).searchParams.get("kind");
+    const p = new URL(req.url).searchParams;
+    const k = p.get("kind");
     const kind = k === "weekly" || k === "all" ? k : "daily";
-    return Response.json(await board(kind, 10));
+    const level = LEVELS.includes(p.get("level")) ? p.get("level") : "mudah";
+    return Response.json(await board(kind, level, 10));
   } catch (e) {
     console.error(e);
     return Response.json({ error: String(e.message || e) }, { status: 500 });

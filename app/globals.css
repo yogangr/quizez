@@ -336,3 +336,130 @@ ul {
   color: var(--mute);
   margin: 8px 0 0;
 }
+
+.lv {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.lv button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border: 2px solid var(--line);
+  background: #fff;
+  border-radius: 14px;
+  color: inherit;
+}
+.lv button small {
+  color: var(--mute);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.lv button:hover {
+  border-color: var(--brand);
+}
+.lv button.on {
+  border-color: var(--brand);
+  background: var(--soft);
+}
+.lv button.on b {
+  color: var(--brand);
+}
+.lv button[data-l="olimpiade"].on {
+  border-color: #7c3aed;
+  background: #f3edff;
+}
+.lv button[data-l="olimpiade"].on b {
+  color: #7c3aed;
+}
+.ttl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lb li.me {
+  background: var(--soft);
+  border-radius: 12px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.party {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.party i {
+  position: absolute;
+  top: -30px;
+  display: block;
+  border-radius: 2px;
+  animation: fall var(--t) linear var(--d) both;
+}
+@keyframes fall {
+  from {
+    transform: translateY(0) rotate(0);
+  }
+  to {
+    transform: translateY(115vh) rotate(var(--r2));
+  }
+}
+.pop {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 22px 34px;
+  text-align: center;
+  max-width: min(90vw, 380px);
+  box-shadow: 0 20px 60px rgba(47, 107, 255, 0.28);
+  animation:
+    pop 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both,
+    fadeout 0.5s ease 4.4s forwards;
+}
+.pop svg {
+  animation: bob 1s ease-in-out 0.6s infinite alternate;
+}
+.pop b {
+  display: block;
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-top: 6px;
+}
+@keyframes pop {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes fadeout {
+  to {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+@keyframes bob {
+  to {
+    transform: translateY(-8px) rotate(5deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .party i {
+    display: none;
+  }
+  .pop,
+  .pop svg {
+    animation: none;
+  }
+}
